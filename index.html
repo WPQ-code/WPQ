@@ -3,14 +3,243 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>赣南师范大学-智慧校园 WebGIS</title>
+    <title>赣南师范大学 - 智慧校园 WebGIS</title>
     
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/openlayers/dist/ol.css"> 
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
-    <link rel="stylesheet" href="/css/GNNU.css">
+    
+    <style>
+        /* --- 1. 全局与布局 --- */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; overflow: hidden; font-family: "PingFang SC", "Microsoft YaHei", sans-serif; }
+        #map { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; background: #e9ecef; }
+        
+        /* 隐藏多余控件 */
+        .ol-zoom, .ol-attribution { display: none !important; }
 
+        /* --- 2. 底部状态栏 (强制布局修复) --- */
+        .bottom-bar {
+            position: absolute; bottom: 0; left: 0; right: 0;
+            height: 30px; 
+            background: rgba(255,255,255,0.95);
+            display: flex; 
+            align-items: center; 
+            padding: 0 15px; 
+            z-index: 1000;
+            border-top: 1px solid #ddd; 
+            font-size: 11px; color: #333;
+            gap: 10px;
+        }
+        
+        /* 强制元素顺序和样式 */
+        .bar-icon { 
+            margin-right: 5px; 
+            color: #4576c1;
+            flex-shrink: 0;
+        }
+        
+        /* 坐标容器：强制不浮动，固定宽度 */
+        #mouse-position, .ol-mouse-position { 
+            font-family: monospace; 
+            font-weight: bold; 
+            min-width: 150px !important;
+            flex-shrink: 0;
+            position: static !important; /* 覆盖 OL 默认样式 */
+            float: none !important;
+            background: transparent !important;
+            top: auto !important;
+            right: auto !important;
+            bottom: auto !important;
+            left: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            line-height: 1;
+        }
+        
+        /* 比例尺容器 */
+        #scale-line-container { 
+            display: flex; 
+            align-items: center;
+            flex-shrink: 0;
+        }
+        
+        /* 版权文字：自动推到最右 */
+        .bar-text { 
+            margin-left: auto; 
+            color: #666; 
+            flex-shrink: 0;
+        }
+
+        /* 覆写 OpenLayers 比例尺样式 */
+        .ol-scale-line { 
+            position: static !important; 
+            background: transparent !important; 
+            padding: 0 !important; 
+            bottom: auto !important; 
+            left: auto !important;
+            right: auto !important;
+            top: auto !important;
+            margin: 0 !important;
+        }
+        .ol-scale-line-inner { 
+            border: 1px solid #5679ae !important; 
+            border-top: none !important; 
+            color: #5679ae !important; 
+            font-size: 8px !important; 
+            font-weight: 600; 
+            line-height: 1; 
+            margin-bottom: 2px; 
+        }
+
+        /* --- 3. 鹰眼 (左下角) --- */
+        .ol-overviewmap {
+            left: 10px !important; right: auto !important; bottom: 35px !important;
+            z-index: 998 !important; background: #fff; padding: 1px; 
+            border-radius: 4px; box-shadow: 0 0 5px rgba(0,0,0,0.2);
+        }
+
+        /* --- 4. 图例控件 --- */
+        .legend-control {
+            position: absolute;
+            left: 180px; /* 在鹰眼右侧 */
+            bottom: 38px; /* 与鹰眼同高 */
+            z-index: 999;
+            background: rgba(192, 214, 240, 0.95);
+            border-radius: 6px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+            padding: 10px;
+            max-width: 300px; /* 增加宽度以支持两列 */
+            display: none; /* 默认隐藏 */
+            font-size: 12px;
+        }
+        .legend-title {
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #333;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+        }
+        .legend-items-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px 12px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 6px;
+            flex: 0 0 calc(50% - 6px); /* 两列布局 */
+            min-width: 0; /* 防止flex子项溢出 */
+        }
+        .legend-symbol {
+            width: 20px;
+            height: 20px;
+            margin-right: 8px;
+            flex-shrink: 0;
+        }
+        .legend-label {
+            color: #555;
+            font-size: 11px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* --- 4. 弹窗样式 --- */
+        .ol-popup { position: absolute; background-color: white; box-shadow: 0 5px 15px rgba(0,0,0,0.3); border-radius: 6px; border: 1px solid #ccc; bottom: 12px; left: -50px; min-width: 280px; z-index: 2000; display: none; }
+        .ol-popup-closer { text-decoration: none; position: absolute; top: 10px; right: 12px; color: #999; font-size: 18px; font-weight: bold; z-index: 2002; }
+        .popup-header { padding: 10px 15px; border-bottom: 1px solid #ddd; color: #198754; font-weight: bold; font-size: 15px; background-color: #fff; border-radius: 6px 6px 0 0; display: flex; align-items: center; }
+        .popup-body { padding: 0; max-height: 300px; overflow-y: auto; }
+        .custom-table { width: 100%; margin-bottom: 0; font-size: 13px; border-collapse: collapse; }
+        .custom-table td { padding: 8px 12px; border-bottom: 1px solid #eee; vertical-align: middle; }
+        .custom-table tr:nth-child(even) { background-color: #f8f9fa; }
+        .label-col { color: #666; width: 35%; }
+        .value-col { font-weight: 600; color: #333; }
+
+        /* --- 5. UI组件 --- */
+        .app-header { position: absolute; top: 20px; left: 20px; height: 48px; background: rgba(255, 255, 255, 0.98); backdrop-filter: blur(10px); border-radius: 50px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 1000; display: flex; align-items: center; padding: 0 25px; }
+        .brand img { height: 28px; width: auto; margin-right: 8px; }
+        .brand { font-size: 16px; font-weight: 700; color: #333; display: flex; align-items: center; }
+        .basemap-toolbar { position: absolute; top: 80px; left: 20px; z-index: 1000; display: flex; gap: 8px; }
+        .basemap-btn { width: 60px; height: 60px; border-radius: 8px; overflow: hidden; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.2); border: 2px solid #fff; transition: all 0.2s; position: relative; }
+        .basemap-btn img { width: 100%; height: 100%; object-fit: cover; }
+        .basemap-btn span { position: absolute; bottom: 0; left: 0; width: 100%; background: rgba(0,0,0,0.6); color: #fff; font-size: 10px; text-align: center; }
+        .basemap-btn.active { border-color: #0d6efd; box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.3); }
+        .left-tools { position: absolute; top: 160px; left: 20px; display: flex; flex-direction: column; gap: 10px; z-index: 998; }
+        .map-btn { width: 40px; height: 40px; background: #fff; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.15); font-size: 18px; color: #555; }
+        .map-btn:hover { background: #0d6efd; color: #fff; }
+        .sidebar { position: absolute; top: 20px; bottom: 50px; right: 20px; width: 360px; background: rgba(255, 255, 255, 0.98); z-index: 999; border-radius: 8px; display: flex; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,0.15); transition: transform 0.3s ease; }
+        .sidebar.collapsed { transform: translateX(calc(100% + 30px)); }
+        #sidebarToggle { position: absolute; top: 120px; right: 380px; width: 24px; height: 60px; background: #fff; border-radius: 8px 0 0 8px; box-shadow: -2px 0 8px rgba(0,0,0,0.1); z-index: 1000; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #666; transition: right 0.3s ease; }
+        #sidebarToggle.collapsed { right: 0; border-radius: 8px 0 0 8px; }
+        .nav-tabs-custom { display: flex; background: #f8f9fa; border-bottom: 1px solid #eee; border-radius: 8px 8px 0 0; padding: 5px; gap: 5px; }
+        .nav-item { flex: 1; text-align: center; padding: 8px 0; cursor: pointer; border-radius: 6px; font-size: 13px; font-weight: 600; color: #666; }
+        .nav-item.active { background: #fff; color: #0d6efd; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .sidebar-content { flex: 1; overflow-y: auto; padding: 15px; }
+        .tab-pane { display: none; } .tab-pane.active { display: block; }
+        .btn-custom { width: 100%; text-align: left; margin-bottom: 8px; padding: 12px 15px; background: #fff; border: 1px solid #ddd; border-radius: 12px; color: #666; height: 50px; display: flex; align-items: center; font-weight: 500; transition: all 0.3s ease; }
+        .btn-custom:hover { background: #f5f5f5; transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .btn-custom.active-gnnu { background-color: #28a745; color: white; border-color: #28a745; }
+        .btn-custom.active-building { background-color: #ffc107; color: white; border-color: #ffc107; }
+        .btn-custom.active-road { background-color: #0d6efd; color: white; border-color: #0d6efd; }
+        .btn-custom.active-parking { background-color: #dc3545; color: white; border-color: #dc3545; }
+        .btn-custom.active-lakes { background-color: #17a2b8; color: white; border-color: #17a2b8; }
+        .btn-custom.active-store { background-color: #28a745; color: white; border-color: #28a745; }
+        .btn-custom[class*="active-"] i { color: #fff !important; }
+        .attr-table-container { max-height: 350px; overflow-y: auto; border: 1px solid #ddd; border-radius: 6px; margin-top: 10px; background: #fff; }
+        
+        /* 属性表样式 */
+        .attr-table { width: 100%; margin: 0; border-collapse: collapse; font-size: 13px; }
+        .attr-table thead { position: sticky; top: 0; z-index: 10; background: #f5f5f5; }
+        .attr-table thead th { 
+            padding: 12px 8px; 
+            text-align: left; 
+            font-weight: 600; 
+            color: #333; 
+            border-bottom: 2px solid #ddd;
+            white-space: nowrap;
+            border-right: 1px solid #ddd;
+        }
+        .attr-table thead th:first-child { color: #888; }
+        .attr-table tbody tr { border-bottom: 1px solid #eee; }
+        .attr-table tbody tr:nth-child(even) { background-color: #fafafa; }
+        .attr-table tbody tr:hover { background-color: #f0f5ff; }
+        .attr-table tbody td { 
+            padding: 10px 8px; 
+            vertical-align: middle;
+            border-right: 1px solid #eee;
+            word-break: break-word;
+            max-width: 200px;
+        }
+        .attr-table tbody tr:hover { cursor: pointer; }
+
+        /* 测量 Tooltip */
+        .tooltip { position: relative; background: rgba(0, 0, 0, 0.5); border-radius: 4px; color: white; padding: 4px 8px; opacity: 0.7; white-space: nowrap; font-size: 12px; pointer-events: none; }
+        .tooltip-measure { opacity: 1; font-weight: bold; }
+
+        /* 路径规划样式 */
+        .route-point { 
+            cursor: pointer; 
+            transition: all 0.2s ease;
+        }
+        .route-point:hover { 
+            transform: scale(1.1);
+        }
+        .route-line {
+            stroke: #007bff;
+            stroke-width: 4;
+            stroke-dasharray: 10, 5;
+            fill: none;
+        }
+        .tooltip-static { background-color: #ffcc33; color: black; border: 1px solid white; }
+        .tooltip-measure:before, .tooltip-static:before { border-top: 6px solid rgba(0, 0, 0, 0.5); border-right: 6px solid transparent; border-left: 6px solid transparent; content: ""; position: absolute; bottom: -6px; margin-left: -7px; left: 50%; }
+        .tooltip-static:before { border-top-color: #ffcc33; }
+
+        #layerTree input[type="checkbox"] { margin-right: 8px; }
+        #layerTree li { padding: 5px 0; border-bottom: 1px dashed #eee; display: flex; align-items: center; }
+    </style>
 
     <script src="./libs/jquery-1.11.2.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/openlayers/dist/ol.js"></script> 
